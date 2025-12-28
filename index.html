@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>物理浮力问题演示</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <!-- Recharts (UMD) -->
+  <script crossorigin src="https://unpkg.com/recharts@2.12.0/umd/Recharts.min.js"></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* Slider styles */
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 20px;
+      width: 20px;
+      border-radius: 50%;
+      background: #3b82f6;
+      cursor: pointer;
+      margin-top: -8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: #e2e8f0;
+      border-radius: 2px;
+    }
+  </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "recharts": "https://esm.sh/recharts@^3.6.0"
+  }
+}
+</script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    // Destructure Recharts from global object
+    const {
+      LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot, Label
+    } = Recharts;
+
+    // --- Icons (Inline SVGs to remove external dependencies) ---
+    const IconPlay = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+    );
+    const IconPause = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+    );
+    const IconRefresh = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
+    );
+    const IconInfo = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+    );
+    const IconCalculator = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="16" height="20" x="4" y="2" rx="2"></rect><line x1="8" x2="16" y1="6" y2="6"></line><line x1="16" x2="16" y1="14" y2="18"></line><path d="M16 10h.01"></path><path d="M12 10h.01"></path><path d="M8 10h.01"></path><path d="M12 14h.01"></path><path d="M8 14h.01"></path><path d="M12 18h.01"></path><path d="M8 18h.01"></path></svg>
+    );
+    const IconBookOpen = ({ className }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+    );
+
+    // --- Physics Constants & Logic ---
+    const CONSTANTS = {
+      blockWeight: 5,
+      containerArea: 0.01,
+      waterDensity: 1000,
+      gravity: 10,
+      waterMassTouch: 1,
+      maxSensorForce: 7
+    };
+
+    const getDerivedValues = () => {
+      const { blockWeight, gravity, maxSensorForce, waterMassTouch, containerArea } = CONSTANTS;
+      const blockMass = blockWeight / gravity;
+      const maxBuoyancy = maxSensorForce + blockWeight; // 12N
+      const blockVolume = maxBuoyancy / (CONSTANTS.waterDensity * gravity);
+      const blockDensity = blockMass / blockVolume;
+      const visualBlockArea = CONSTANTS.containerArea * 0.5; 
+      const visualBlockHeight = blockVolume / visualBlockArea;
+
+      const mTouch = waterMassTouch;
+      const annularArea = containerArea - visualBlockArea;
+      const vAnnular = annularArea * visualBlockHeight;
+      const mAnnular = vAnnular * CONSTANTS.waterDensity; 
+      const mSubmerged = mTouch + mAnnular;
+      const ratio = blockWeight / maxBuoyancy;
+      const mFloat = mTouch + (mSubmerged - mTouch) * ratio;
+
+      return {
+        blockMass, maxBuoyancy, blockVolume, blockDensity, visualBlockArea, visualBlockHeight,
+        keyPoints: {
+          mTouch: parseFloat(mTouch.toFixed(2)),
+          mFloat: parseFloat(mFloat.toFixed(2)),
+          mSubmerged: parseFloat(mSubmerged.toFixed(2))
+        }
+      };
+    };
+
+    const calculateState = (waterMass) => {
+      const { containerArea, waterDensity, gravity, blockWeight, waterMassTouch } = CONSTANTS;
+      const { maxBuoyancy, visualBlockArea, visualBlockHeight } = getDerivedValues();
+      
+      const vWater = waterMass / waterDensity;
+      const hBlockBottom = waterMassTouch / (waterDensity * containerArea);
+      
+      let waterHeight = 0;
+      let blockSubmergedHeight = 0;
+      
+      const vBelow = hBlockBottom * containerArea;
+      
+      if (vWater <= vBelow) {
+        waterHeight = vWater / containerArea;
+        blockSubmergedHeight = 0;
+      } else {
+        const vRemaining = vWater - vBelow;
+        const annularArea = containerArea - visualBlockArea;
+        const hRise = vRemaining / annularArea;
+        if (hRise <= visualBlockHeight) {
+          waterHeight = hBlockBottom + hRise;
+          blockSubmergedHeight = hRise;
+        } else {
+          const vAbove = vRemaining - (visualBlockHeight * annularArea);
+          const hAbove = vAbove / containerArea;
+          waterHeight = hBlockBottom + visualBlockHeight + hAbove;
+          blockSubmergedHeight = visualBlockHeight;
+        }
+      }
+      
+      const submergedFraction = Math.min(Math.max(blockSubmergedHeight / visualBlockHeight, 0), 1);
+      const buoyancy = submergedFraction * maxBuoyancy;
+      const sensorForce = Math.abs(blockWeight - buoyancy);
+      
+      return { waterMass, waterHeight, sensorForce, buoyancy, blockSubmergedHeight };
+    };
+
+    // --- Components ---
+    const SimulationCanvas = ({ state }) => {
+      const { visualBlockHeight } = getDerivedValues();
+      const CANVAS_HEIGHT = 500;
+      const CANVAS_WIDTH = 400;
+      const scaleMetersToPx = (m) => m * 800; // Updated scale
+      const PX_PER_N = 12; // Updated force scale
+
+      const contWidthPx = 200;
+      const contHeightPx = 400; // Updated container height
+      const bottomY = 450; // Updated bottom position
+      const centerX = CANVAS_WIDTH / 2;
+
+      const blockWidthPx = 100;
+      const blockHeightPx = scaleMetersToPx(visualBlockHeight);
+      const blockBottomWorldM = 0.1;
+      const blockBottomPx = bottomY - scaleMetersToPx(blockBottomWorldM);
+      const blockTopPx = blockBottomPx - blockHeightPx;
+      const blockCenterY = blockTopPx + blockHeightPx / 2;
+
+      const waterHeightPx = scaleMetersToPx(state.waterHeight);
+      const waterTopY = bottomY - waterHeightPx;
+
+      const fixedY = 25; 
+      const sensorHeight = 30;
+      const sensorBoxTop = fixedY;
+      const sensorBoxBottom = fixedY + sensorHeight;
+
+      return (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50 border rounded-xl shadow-inner overflow-hidden relative">
+          <svg width={CANVAS_WIDTH} height={CANVAS_HEIGHT} viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}>
+            <defs>
+              <pattern id="waterPattern" patternUnits="userSpaceOnUse" width="20" height="20">
+                <path d="M0,20 l20,-20 M-5,5 l10,-10 M15,25 l10,-10" stroke="#93c5fd" strokeWidth="1" opacity="0.5"/>
+              </pattern>
+              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444" />
+              </marker>
+              <marker id="arrowheadBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6" />
+              </marker>
+            </defs>
+            <line x1={centerX - 100} y1={fixedY} x2={centerX + 100} y2={fixedY} stroke="#333" strokeWidth="4" strokeLinecap="round" />
+            <line x1={centerX - 100} y1={fixedY} x2={centerX - 80} y2={fixedY - 20} stroke="#333" strokeWidth="2" />
+            <text x={centerX - 140} y={fixedY + 5} className="text-xs fill-gray-600">固定端</text>
+            <rect x={centerX - 20} y={sensorBoxTop} width={40} height={sensorHeight} fill="#ddd" stroke="#666" rx="2" />
+            <rect x={centerX - 15} y={sensorBoxTop + 5} width={30} height={20} fill="white" stroke="#999" />
+            <text x={centerX} y={sensorBoxTop + 18} textAnchor="middle" fontSize="10" fontWeight="bold" fill="red">
+              {state.sensorForce.toFixed(2)}N
+            </text>
+            <line x1={centerX} y1={sensorBoxBottom} x2={centerX} y2={blockTopPx} stroke="#555" strokeWidth="3" />
+            <line x1={centerX - contWidthPx/2} y1={bottomY} x2={centerX + contWidthPx/2} y2={bottomY} stroke="black" strokeWidth="4" />
+            <line x1={centerX - contWidthPx/2} y1={bottomY} x2={centerX - contWidthPx/2} y2={bottomY - contHeightPx} stroke="black" strokeWidth="4" />
+            <line x1={centerX + contWidthPx/2} y1={bottomY} x2={centerX + contWidthPx/2} y2={bottomY - contHeightPx} stroke="black" strokeWidth="4" />
+            <mask id="waterMask">
+                <rect x={centerX - contWidthPx/2 + 2} y={waterTopY} width={contWidthPx - 4} height={waterHeightPx} fill="white" />
+            </mask>
+            <rect x={centerX - contWidthPx/2 + 2} y={waterTopY} width={contWidthPx - 4} height={waterHeightPx} fill="#3b82f6" fillOpacity="0.3" />
+            <rect x={centerX - contWidthPx/2 + 2} y={waterTopY} width={contWidthPx - 4} height={waterHeightPx} fill="url(#waterPattern)" />
+            <g>
+              <rect x={centerX - blockWidthPx/2} y={blockTopPx} width={blockWidthPx} height={blockHeightPx} fill="#cbd5e1" stroke="#475569" strokeWidth="2" />
+              <text x={centerX} y={blockCenterY} textAnchor="middle" dominantBaseline="middle" fontSize="20" fontWeight="bold" fill="#475569" opacity="0.5">M</text>
+            </g>
+            
+            {/* Gravity (Down) */}
+            <line x1={centerX} y1={blockCenterY} x2={centerX} y2={blockCenterY + (CONSTANTS.blockWeight * PX_PER_N)} stroke="#ef4444" strokeWidth="3" markerEnd="url(#arrowhead)" />
+            <text x={centerX + 12} y={blockCenterY + (CONSTANTS.blockWeight * PX_PER_N)} fill="#ef4444" fontSize="14" fontWeight="bold" dominantBaseline="middle">G</text>
+            
+            {/* Buoyancy (Up) */}
+            {state.buoyancy > 0 && (
+              <>
+                <line x1={centerX} y1={blockCenterY} x2={centerX} y2={blockCenterY - (state.buoyancy * PX_PER_N)} stroke="#3b82f6" strokeWidth="3" markerEnd="url(#arrowheadBlue)" />
+                <text x={centerX + 12} y={blockCenterY - (state.buoyancy * PX_PER_N)} fill="#3b82f6" fontSize="14" fontWeight="bold" dominantBaseline="middle">F浮</text>
+              </>
+            )}
+
+            {/* Center of Mass Dot */}
+            <circle cx={centerX} cy={blockCenterY} r="4" fill="black" stroke="white" strokeWidth="1" />
+          </svg>
+        </div>
+      );
+    };
+
+    const SolutionPanel = () => {
+      const { blockMass, maxBuoyancy, blockDensity } = getDerivedValues();
+      const p4_pressure = CONSTANTS.waterDensity * CONSTANTS.gravity * 0.1; 
+      const p4_force = p4_pressure * CONSTANTS.containerArea;
+
+      return (
+        <div className="w-full">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
+              <IconCalculator className="w-5 h-5 text-blue-600" />
+              解题过程详解
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <section className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span>
+                  求物块 M 的质量
+                </h4>
+                <div className="text-sm text-slate-600 leading-relaxed font-mono pl-8">
+                  <p>由图乙可知，当加入水的质量 m &lt; 1kg 时，传感器示数不变，为 F₁ = 5N。</p>
+                  <p>此时物块未受到浮力，故：</p>
+                  <p className="font-bold my-1 text-slate-800">G = F₁ = 5N</p>
+                  <p>由 G = mg 得：</p>
+                  <p className="text-blue-600 font-bold">m_M = G/g = 5/10 = {blockMass} kg</p>
+                </div>
+              </section>
+              <section className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span>
+                  求物块受到的浮力最大值
+                </h4>
+                <div className="text-sm text-slate-600 leading-relaxed font-mono pl-8">
+                  <p>当水面淹没物块后，由图乙可知传感器示数最终稳定在 F₂ = 7N。</p>
+                  <p>此时 F示数 经历了先减小到0再反向增加的过程（轻杆受到压力）。</p>
+                  <p>F浮_max = G + F₂ = 5N + 7N = 12N</p>
+                  <p className="text-blue-600 font-bold">F浮_max = {maxBuoyancy} N</p>
+                </div>
+              </section>
+              <section className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span>
+                  求物块的密度
+                </h4>
+                <div className="text-sm text-slate-600 leading-relaxed font-mono pl-8">
+                  <p>物块完全浸没时浮力最大：</p>
+                  <p>V物 = F浮_max / (ρ水 g) = 12 / (10000) = 1.2×10⁻³ m³</p>
+                  <p>ρ物 = m_M / V物 = 0.5 / (1.2×10⁻³)</p>
+                  <p className="text-blue-600 font-bold">ρ物 ≈ {blockDensity.toFixed(1)} kg/m³</p>
+                </div>
+              </section>
+              <section className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                  <span className="bg-blue-100 text-blue-600 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">4</span>
+                  刚好接触水面时容器底受到的压强和压力
+                </h4>
+                <div className="text-sm text-slate-600 leading-relaxed font-mono pl-8">
+                  <p>转折点发生在 m = 1kg 时，水深 h = 0.1m。</p>
+                  <p>压强 P = ρ水 g h = 1000 × 10 × 0.1 = {p4_pressure} Pa</p>
+                  <p>压力 F = P S = {p4_force} N</p>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ProblemStatement = () => (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
+        <h2 className="text-lg font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <IconBookOpen className="w-5 h-5 text-blue-600" />
+          题目描述
+        </h2>
+        <p className="text-slate-700 leading-relaxed text-base">
+          如图所示，将一圆柱体物块 M 通过硬杆固定在力传感器下方，初始时物块下方悬空，下方放置一圆柱形容器。现向容器中缓慢注水，直到水面淹没物块。传感器示数 F 随加入水的质量 m 变化的关系如图所示。（已知 g=10N/kg，水的密度 ρ=1.0×10³kg/m³）
+        </p>
+        <div className="mt-4 flex flex-wrap gap-4 text-sm text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+            <span>A点：水面刚接触物块底面 (m=1.0kg, F=5N)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <span>B点：浮力等于重力 (F=0N)</span>
+          </div>
+           <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+            <span>C点：物块完全浸没 (F=7N)</span>
+          </div>
+        </div>
+      </div>
+    );
+
+    const App = () => {
+      const [waterMass, setWaterMass] = useState(0);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [simState, setSimState] = useState(calculateState(0));
+      
+      const { keyPoints } = getDerivedValues();
+      const MAX_MASS = 3.5;
+      const STEP = 0.01;
+
+      useEffect(() => {
+        setSimState(calculateState(waterMass));
+      }, [waterMass]);
+
+      useEffect(() => {
+        let interval;
+        if (isPlaying) {
+          interval = window.setInterval(() => {
+            setWaterMass((prev) => {
+              if (prev >= MAX_MASS) {
+                setIsPlaying(false);
+                return prev;
+              }
+              return Math.min(prev + 0.02, MAX_MASS);
+            });
+          }, 30);
+        }
+        return () => clearInterval(interval);
+      }, [isPlaying]);
+
+      const handleReset = () => {
+        setIsPlaying(false);
+        setWaterMass(0);
+      };
+
+      const isNear = (target) => Math.abs(waterMass - target) < 0.1;
+      const getPercent = (val) => (val / MAX_MASS) * 100;
+
+      const chartData = [];
+      for (let m = 0; m <= MAX_MASS; m += 0.1) {
+        const s = calculateState(m);
+        chartData.push({ m: parseFloat(m.toFixed(2)), F: parseFloat(s.sensorForce.toFixed(2)) });
+      }
+
+      return (
+        <div className="min-h-screen bg-slate-100 text-slate-900 font-sans">
+          <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 text-white p-2 rounded-lg">
+                 <IconInfo className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-slate-800">浮力与力传感器问题</h1>
+                <p className="text-sm text-slate-500">Physics Buoyancy Problem Visualization</p>
+              </div>
+            </div>
+            <div className="text-sm text-slate-600 bg-slate-50 px-4 py-2 rounded-full border border-slate-200">
+              题号 24 (9分)
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto p-4 md:p-6">
+            
+            {/* Problem Statement Section */}
+            <ProblemStatement />
+
+            {/* Top Section: Visualization (Left) and Chart (Right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+              
+              {/* Left Column: Visualization & Controls (7 cols) */}
+              <div className="lg:col-span-7 flex flex-col gap-4">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 relative flex flex-col h-[600px]">
+                  <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur px-3 py-2 rounded-lg border shadow-sm text-xs font-mono space-y-1">
+                    <div>水质量 m: <span className="font-bold text-blue-600">{waterMass.toFixed(2)} kg</span></div>
+                    <div>传感器示数 F: <span className="font-bold text-red-600">{simState.sensorForce.toFixed(2)} N</span></div>
+                    <div>浮力 F_buoy: <span className="font-bold text-green-600">{simState.buoyancy.toFixed(2)} N</span></div>
+                  </div>
+                  
+                  <div className="flex-1 w-full h-full overflow-hidden">
+                    <SimulationCanvas state={simState} />
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <button 
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      className={`p-3 rounded-full text-white transition-colors shadow-lg flex items-center justify-center ${isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                      {isPlaying ? <IconPause className="w-5 h-5 fill-current" /> : <IconPlay className="w-5 h-5 ml-1 fill-current" />}
+                    </button>
+                    
+                    <button 
+                      onClick={handleReset}
+                      className="p-3 rounded-full bg-white text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors flex items-center justify-center"
+                    >
+                      <IconRefresh className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex-1 px-2 relative">
+                       <input 
+                        type="range" 
+                        min="0" 
+                        max={MAX_MASS} 
+                        step={STEP} 
+                        value={waterMass}
+                        onChange={(e) => {
+                          setIsPlaying(false);
+                          setWaterMass(parseFloat(e.target.value));
+                        }}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 relative z-10"
+                      />
+                      
+                      <div className="relative w-full h-6 text-xs text-slate-400 mt-2 font-mono select-none">
+                        <span className="absolute left-0 top-0">0kg</span>
+                        <span 
+                          className={`absolute top-0 -translate-x-1/2 transition-all duration-200 ${isNear(keyPoints.mTouch) ? 'text-blue-600 font-bold scale-110' : ''}`}
+                          style={{ left: `${getPercent(keyPoints.mTouch)}%` }}
+                        >
+                          接触
+                        </span>
+                        <span 
+                          className={`absolute top-0 -translate-x-1/2 transition-all duration-200 ${isNear(keyPoints.mFloat) ? 'text-amber-600 font-bold scale-110' : ''}`}
+                          style={{ left: `${getPercent(keyPoints.mFloat)}%` }}
+                        >
+                          漂浮
+                        </span>
+                        <span 
+                          className={`absolute top-0 -translate-x-1/2 transition-all duration-200 ${isNear(keyPoints.mSubmerged) ? 'text-red-600 font-bold scale-110' : ''}`}
+                          style={{ left: `${getPercent(keyPoints.mSubmerged)}%` }}
+                        >
+                          浸没
+                        </span>
+                        <span className="absolute right-0 top-0">{MAX_MASS}kg</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Chart (5 cols) */}
+              <div className="lg:col-span-5">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 h-[600px] flex flex-col">
+                   <h3 className="text-sm font-semibold text-slate-500 mb-2 pl-2">传感器示数 F 随 加水质量 m 变化图 <span className="text-xs font-normal text-slate-400">(点击图表可跳转)</span></h3>
+                   <div className="flex-1 w-full min-h-0">
+                     <ResponsiveContainer width="100%" height="100%">
+                       <LineChart 
+                          data={chartData} 
+                          margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
+                          onClick={(e) => {
+                            if (e && e.activeLabel !== undefined && e.activeLabel !== null) {
+                              setIsPlaying(false);
+                              setWaterMass(Number(e.activeLabel));
+                            }
+                          }}
+                          className="cursor-pointer"
+                        >
+                         <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                         <XAxis 
+                            dataKey="m" 
+                            type="number" 
+                            domain={[0, MAX_MASS]} 
+                            label={{ value: 'm (kg)', position: 'insideBottomRight', offset: -10, fontSize: 12 }} 
+                            tick={{fontSize: 12}}
+                         />
+                         <YAxis 
+                            domain={[0, 8]} 
+                            label={{ value: 'F (N)', angle: -90, position: 'insideLeft', fontSize: 12 }} 
+                            tick={{fontSize: 12}}
+                         />
+                         <Tooltip 
+                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            itemStyle={{ color: '#2563eb', fontWeight: 'bold' }}
+                            labelStyle={{ color: '#64748b' }}
+                         />
+                         <Line type="monotone" dataKey="F" stroke="#334155" strokeWidth={2} dot={false} isAnimationActive={false} />
+                         
+                         <ReferenceDot x={waterMass} y={simState.sensorForce} r={6} fill="#ef4444" stroke="white" strokeWidth={2} />
+                         
+                         <ReferenceDot 
+                            x={keyPoints.mTouch} 
+                            y={5} 
+                            r={isNear(keyPoints.mTouch) ? 8 : 4} 
+                            fill="#3b82f6" 
+                            stroke="white"
+                            fillOpacity={isNear(keyPoints.mTouch) ? 1 : 0.6}
+                          >
+                           <Label value="A:接触" position="top" offset={10} fontSize={10} fill="#3b82f6" />
+                         </ReferenceDot>
+
+                         <ReferenceDot 
+                            x={keyPoints.mFloat} 
+                            y={0} 
+                            r={isNear(keyPoints.mFloat) ? 8 : 4} 
+                            fill="#f59e0b" 
+                            stroke="white"
+                            fillOpacity={isNear(keyPoints.mFloat) ? 1 : 0.6}
+                         >
+                           <Label value="B:漂浮" position="top" offset={10} fontSize={10} fill="#f59e0b" />
+                         </ReferenceDot>
+
+                         <ReferenceDot 
+                            x={keyPoints.mSubmerged} 
+                            y={7} 
+                            r={isNear(keyPoints.mSubmerged) ? 8 : 4} 
+                            fill="#ef4444" 
+                            stroke="white"
+                            fillOpacity={isNear(keyPoints.mSubmerged) ? 1 : 0.6}
+                         >
+                           <Label value="C:浸没" position="bottom" offset={10} fontSize={10} fill="#ef4444" />
+                         </ReferenceDot>
+                       </LineChart>
+                     </ResponsiveContainer>
+                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Row: Solution (Full Width) */}
+            <SolutionPanel />
+
+          </main>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

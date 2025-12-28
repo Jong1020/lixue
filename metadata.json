@@ -1,0 +1,5 @@
+{
+  "name": "Physics Buoyancy Solver",
+  "description": "An interactive physics visualization and solver for a buoyancy problem involving a force sensor, block, and water container.",
+  "requestFramePermissions": []
+}
